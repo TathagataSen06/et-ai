@@ -1,0 +1,117 @@
+x-backend-env: &backend-env
+  NETRA_DATABASE_URL: postgresql+psycopg2://netra_user:${POSTGRES_PASSWORD:-netra_dev_only}@postgres:5432/netra_db
+  NETRA_REDIS_URL: redis://redis:6379/0
+  NETRA_NEO4J_URI: bolt://neo4j:7687
+  NETRA_NEO4J_USER: neo4j
+  NETRA_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-netra_dev_only}
+  NETRA_JWT_SECRET: ${NETRA_JWT_SECRET:-netra-dev-secret-change-me-in-production-0123456789}
+  NETRA_CORS_ORIGINS: '["http://localhost:3000"]'
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: netra_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netra_dev_only}
+      POSTGRES_DB: netra_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netra_user -d netra_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-netra_dev_only}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+
+  backend:
+    build: ./backend
+    environment: *backend-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-worker:
+    build: ./backend
+    command: celery -A app.tasks worker --loglevel=info
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    build: ./backend
+    command: celery -A app.tasks beat --loglevel=info
+    environment: *backend-env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # One-shot job: generates synthetic data, ingests it, syncs the Neo4j graph.
+  seeder:
+    build: ./backend
+    environment: *backend-env
+    command: >
+      sh -c "python scripts/synthetic_data_generator.py &&
+             python scripts/ingest_data.py"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-netra_dev_only}
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  grafana_data:

@@ -1,0 +1,7 @@
+.venv
+__pycache__
+*.pyc
+netra.db
+test_netra.db
+scripts/data
+tests

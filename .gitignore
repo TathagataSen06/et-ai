@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.db
+
+# Node
+node_modules/
+dist/
+
+# Generated data
+backend/scripts/data/
+
+# Env / IDE / local tooling
+.env
+.vscode/
+.idea/
+.claude/
+.agents/

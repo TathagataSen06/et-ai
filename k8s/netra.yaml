@@ -1,0 +1,191 @@
+# Project Netra — Kubernetes manifests (spec Part 8: Docker + Kubernetes).
+# Apply with: kubectl apply -f k8s/netra.yaml
+# Images are pulled from GHCR (pushed by CI); replace OWNER/REPO accordingly.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netra
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: netra-secrets
+  namespace: netra
+type: Opaque
+stringData:
+  postgres-password: change-me
+  jwt-secret: change-me-to-a-long-random-string
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: netra
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgis/postgis:16-3.4
+          env:
+            - name: POSTGRES_USER
+              value: netra_user
+            - name: POSTGRES_DB
+              value: netra_db
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: netra-secrets, key: postgres-password }
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 5Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: netra
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: netra
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: netra
+spec:
+  selector: { app: redis }
+  ports:
+    - port: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: netra
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/OWNER/REPO/netra-backend:latest
+          env:
+            - name: NETRA_REDIS_URL
+              value: redis://redis:6379/0
+            - name: NETRA_JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: netra-secrets, key: jwt-secret }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: netra-secrets, key: postgres-password }
+            - name: NETRA_DATABASE_URL
+              value: postgresql+psycopg2://netra_user:$(POSTGRES_PASSWORD)@postgres:5432/netra_db
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: netra
+spec:
+  selector: { app: backend }
+  ports:
+    - port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: netra
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend }
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/OWNER/REPO/netra-frontend:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: netra
+spec:
+  selector: { app: frontend }
+  ports:
+    - port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: netra
+  namespace: netra
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: backend, port: { number: 8000 } }
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service: { name: backend, port: { number: 8000 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: frontend, port: { number: 80 } }

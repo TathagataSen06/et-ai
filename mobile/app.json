@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Netra Scanner",
+    "slug": "netra-scanner",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#f8fafc"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan currency notes for counterfeit screening.",
+        "NSLocationWhenInUseUsageDescription": "Attach the scan location so hotspots can be mapped."
+      }
+    },
+    "android": {
+      "package": "org.netra.scanner",
+      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION"]
+    },
+    "plugins": [
+      ["expo-camera", { "cameraPermission": "Scan currency notes for counterfeit screening." }],
+      ["expo-location", { "locationWhenInUsePermission": "Attach the scan location so hotspots can be mapped." }]
+    ]
+  }
+}
