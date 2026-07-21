@@ -146,6 +146,13 @@ def test_shield_benign_message_safe(client):
     assert r.json()["verdict"] == "LIKELY_SAFE"
 
 
+def test_shield_negated_otp_advisory_not_flagged(client):
+    r = client.post("/api/v1/shield/assess", json={
+        "message": "Security tip from your bank: never share your OTP or PIN with anyone. "
+                   "Bank officials will never ask for it."})
+    assert r.json()["verdict"] == "LIKELY_SAFE"
+
+
 def test_shield_language_autodetect_hindi(client):
     r = client.post("/api/v1/shield/assess", json={
         "message": "आपका खाता बंद हो जाएगा, OTP भेजें और verification के लिए पैसे transfer करें"})

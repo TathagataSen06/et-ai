@@ -63,6 +63,14 @@ FRAUD_TYPES: list[tuple[str, float, list[str]]] = [
 HELPLINE = "1930"
 REPORT_URL = "https://cybercrime.gov.in"
 
+# Legitimate safety advisories ("never share your OTP") must not trip the
+# OTP-theft family — a citizen-facing tool lives or dies on its FP rate.
+_NEGATED_OTP_RE = re.compile(
+    r"(never|do not|don'?t|कभी|मत|न)\s+\S{0,15}\s*(share|शेयर|बता|भेज)"
+    r"|(share|शेयर|बता|भेज)\w*\s+(न करें|मत करें|नहीं)",
+    re.IGNORECASE,
+)
+
 # ---------------------------------------------------------------------------
 # Advisory templates: English + 12 regional languages. Keys are ISO 639-1.
 # Each entry: high / medium / safe verdict lines + universal action lines.
@@ -219,6 +227,8 @@ class FraudShield:
             hits = [re.search(p, text).group(0)[:60] for p in patterns if re.search(p, text)]
             if not hits:
                 continue
+            if fraud_type == "OTP_THEFT" and _NEGATED_OTP_RE.search(text):
+                continue  # "never share your OTP" advisories are not requests
             score = min(base_risk + 0.1 * (len(hits) - 1), 0.95)
             if score > best_score:
                 best_score, best_type = score, fraud_type
