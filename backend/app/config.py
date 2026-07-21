@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     threshold_counterfeit: float = 0.75
     threshold_suspicious: float = 0.50
 
-    max_upload_bytes: int = 10 * 1024 * 1024  # 10 MB
+    max_upload_bytes: int = 20 * 1024 * 1024  # 20 MB (48MP phone photos reach ~15 MB)
     batch_max_files: int = 10
 
     # Auth (OAuth2 password flow + JWT). Demo credentials — override in prod.

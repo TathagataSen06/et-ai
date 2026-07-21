@@ -56,15 +56,38 @@ export const assignPatrol = (officerName: string, hotspotId: string, notes?: str
     body: JSON.stringify({ officer_name: officerName, hotspot_id: hotspotId, notes: notes || null }),
   })
 
+// Phone cameras produce 10–15 MB captures that trip the server's upload cap.
+// Downscale oversized images client-side (2400px longest edge keeps far more
+// detail than the detector's minimum-resolution envelope needs). Small files
+// pass through untouched so their EXIF (incl. GPS) is preserved.
+async function fitForUpload(file: File, maxBytes = 4 * 1024 * 1024, maxEdge = 2400): Promise<File> {
+  if (file.size <= maxBytes) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.88),
+    )
+    if (!blob) return file
+    return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } catch {
+    return file // decoding failed -> let the server produce its own error
+  }
+}
+
 export async function analyzeNote(file: File): Promise<ScanResult> {
   const form = new FormData()
-  form.append('file', file)
+  form.append('file', await fitForUpload(file))
   return request<ScanResult>('/api/v1/scanner/analyze', { method: 'POST', body: form })
 }
 
 export async function verifyMedia(file: File) {
   const form = new FormData()
-  form.append('file', file)
+  form.append('file', await fitForUpload(file))
   return request<{ tamper_score: number; verdict: string; disclaimer: string }>(
     '/api/v1/citizen/media/verify',
     { method: 'POST', body: form },
