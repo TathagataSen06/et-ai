@@ -93,6 +93,10 @@ class CounterfeitDetector:
         # Loaded lazily so a missing/broken reference degrades to thresholds.
         self._calibration = None
         self._calibration_loaded = False
+        self._bank = None
+        self._bank_loaded = False
+        self._relative = None
+        self._relative_loaded = False
 
     @property
     def calibration(self):
@@ -208,6 +212,10 @@ class CounterfeitDetector:
         are settled immediately. Borderline scores escalate to the consensus
         ensemble, whose spread drives the adaptive verdict margin.
         """
+        relative = self._relative_assessment(img)
+        if relative is not None:
+            return relative
+
         base = self.analyze(img)
         fast_low = threshold_suspicious - MAX_ADAPTIVE_SHIFT
         fast_high = threshold_counterfeit + MAX_ADAPTIVE_SHIFT
@@ -265,6 +273,86 @@ class CounterfeitDetector:
             ensemble_scores=[round(s, 4) for s in scores],
         )
         return self._apply_conformal(assessment, analyses)
+
+    # ------------------------------------------------------------------
+    # Reference-relative mode: when a bank of genuine notes is installed and
+    # the capture matches one of them, score the deviation from *that* note.
+    # Removing note identity as a variance source measured AUC 0.973 vs 0.610
+    # for the population-relative path (scripts/calibrate_relative.py).
+    # ------------------------------------------------------------------
+    @property
+    def reference_bank(self):
+        if not self._bank_loaded:
+            from app.services.reference_bank import ReferenceBank
+
+            try:
+                self._bank = ReferenceBank.from_dir()
+            except Exception:
+                logger.exception("Reference bank failed to load")
+                self._bank = None
+            self._bank_loaded = True
+        return self._bank
+
+    @property
+    def relative_calibration(self):
+        if not self._relative_loaded:
+            from app.services.calibration import load_calibration
+            from app.services.reference_bank import RELATIVE_PATH
+
+            self._relative = load_calibration(RELATIVE_PATH)
+            self._relative_loaded = True
+        return self._relative
+
+    def _relative_assessment(self, img: np.ndarray) -> Assessment | None:
+        bank, calib = self.reference_bank, self.relative_calibration
+        if bank is None or calib is None:
+            return None
+        match = bank.match(img)
+        if match is None:
+            return None
+
+        from app.services.calibration import COUNTERFEIT_P, REVIEW_P
+        from app.services.reference_bank import absolute_metrics, relative_vector
+
+        vec = relative_vector(absolute_metrics(img), match.reference.metrics)
+        if not vec:
+            return None
+        p = calib.p_value(calib.nonconformity(vec))
+
+        if p <= COUNTERFEIT_P:
+            verdict = "LIKELY_COUNTERFEIT"
+            reason = (f"deviates from genuine reference {match.reference.name} beyond the "
+                      f"99th percentile of genuine captures (p={p:.3f})")
+        elif p <= REVIEW_P:
+            verdict = "SUSPICIOUS"
+            reason = (f"deviates from genuine reference {match.reference.name} "
+                      f"(p={p:.3f}) — manual review")
+        else:
+            verdict = "LIKELY_GENUINE"
+            reason = (f"consistent with genuine reference {match.reference.name} "
+                      f"(p={p:.3f})")
+
+        features = {
+            name.replace("rel.", ""): {
+                "confidence": round(float(min(max(value, 0.0), 1.0)), 4),
+                "detail": {"ratio_to_reference": round(float(value), 4)},
+                "status": "MATCH" if value >= 0.6 else "DEVIATION",
+            }
+            for name, value in vec.items()
+        }
+        return Assessment(
+            counterfeit_score=round(1.0 - p, 4),
+            uncertainty=0.0,
+            mode="reference-relative",
+            verdict=verdict,
+            verdict_reason=reason,
+            thresholds={"counterfeit_p": float(COUNTERFEIT_P), "review_p": float(REVIEW_P)},
+            features=features,
+            denomination="UNKNOWN",
+            ensemble_scores=[round(1.0 - p, 4)],
+            calibrated=True,
+            genuine_percentile=round(100.0 * (1.0 - p), 1),
+        )
 
     def _apply_conformal(self, assessment: Assessment, analyses: list[Analysis]) -> Assessment:
         """Re-anchor the verdict to the genuine reference population.

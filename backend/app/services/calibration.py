@@ -54,6 +54,27 @@ METRIC_SPEC: dict[str, tuple[str, float]] = {
 # gain collapses — weight it like a primary structural metric.
 METRIC_SPEC["microprint.scale_gain"] = ("deficit", 1.0)
 
+# Reference-relative metrics (see services/reference_bank.py). These score a
+# capture against the single genuine note it depicts rather than the whole
+# population, so note-to-note variance stops inflating the reference spread.
+RELATIVE_SPEC: dict[str, tuple[str, float]] = {
+    "rel.high_freq": ("deficit", 1.4),
+    "rel.laplacian": ("deficit", 1.2),
+    "rel.scale_gain": ("deficit", 1.0),
+    # Halftoning raises block-variance instead of lowering it, so texture
+    # deviation is informative in both directions.
+    "rel.texture": ("two_sided", 0.8),
+    "rel.edge_density": ("deficit", 1.2),
+    "rel.raster": ("excess", 1.2),
+    # Toner/inkjet gamut cannot reach banknote ink saturation; measured at
+    # ~12 SD separation on photocopies, the strongest single relative signal.
+    "rel.saturation": ("two_sided", 1.6),
+}
+
+# Absolute and relative metrics share one scorer; a calibration carries only
+# one family, so the merged lookup is unambiguous per reference.
+ALL_SPEC: dict[str, tuple[str, float]] = {**METRIC_SPEC, **RELATIVE_SPEC}
+
 Z_CLIP = 10.0
 
 
@@ -112,7 +133,7 @@ class ReferenceCalibration:
         """Weighted mean of directional robust z-scores vs the reference."""
         total, weight_sum = 0.0, 0.0
         for name, value in vector.items():
-            spec = METRIC_SPEC.get(name)
+            spec = ALL_SPEC.get(name)
             ref = self.stats.get(name)
             if spec is None or ref is None:
                 continue
@@ -170,7 +191,9 @@ def build_calibration(
     score_pool = vectors[max(40, int(n * 0.3)):] if split else vectors
 
     stats: dict[str, dict] = {}
-    for name in METRIC_SPEC:
+    # ALL_SPEC so a relative-mode calibration gets stats for its rel.* metrics;
+    # metrics absent from the vectors are simply skipped below.
+    for name in ALL_SPEC:
         values = np.array([v[name] for v in stats_pool if name in v], dtype=float)
         if len(values) == 0:
             continue
