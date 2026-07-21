@@ -4,16 +4,18 @@ import { CitizenReportPage } from './pages/CitizenReportPage'
 import { CommandCenter } from './pages/CommandCenter'
 import { Login } from './pages/Login'
 import { NetworkGraphPage } from './pages/NetworkGraph'
+import { ScamIntel } from './pages/ScamIntel'
 import { Scanner } from './pages/Scanner'
 import { useAuthStore } from './stores/auth'
 
-type Page = 'command' | 'network' | 'scanner' | 'report'
+type Page = 'command' | 'network' | 'scam' | 'scanner' | 'report'
 
 const PAGES: { id: Page; label: string }[] = [
   { id: 'command', label: 'Command Center' },
   { id: 'network', label: 'Network' },
+  { id: 'scam', label: 'Scam Intel' },
   { id: 'scanner', label: 'Scanner' },
-  { id: 'report', label: 'Report' },
+  { id: 'report', label: 'Citizen Shield' },
 ]
 
 export default function App() {
@@ -38,7 +40,7 @@ export default function App() {
           <span className="brand-name">
             <span className="brand-mark">◆</span>Project Netra
           </span>
-          <span className="brand-sub">Counterfeit Currency Intelligence</span>
+          <span className="brand-sub">Digital Public Safety Intelligence</span>
         </div>
         <nav className="topbar-nav">
           {PAGES.map((p) => (
@@ -59,6 +61,7 @@ export default function App() {
       <main className="content">
         {page === 'command' && <CommandCenter />}
         {page === 'network' && <NetworkGraphPage />}
+        {page === 'scam' && <ScamIntel />}
         {page === 'scanner' && <Scanner />}
         {page === 'report' && <CitizenReportPage />}
       </main>

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.auth_service import get_current_user
+from app.services.campaign_service import CampaignIntelligence
 from app.services.network_service import NetworkIntelligence
 
 router = APIRouter(
@@ -29,6 +30,21 @@ def dealer_network(dealer_id: str, db: Session = Depends(get_db)):
 @router.get("/suspicious-accounts")
 def suspicious_accounts(db: Session = Depends(get_db)):
     return NetworkIntelligence(db).suspicious_accounts()
+
+
+@router.get("/campaigns")
+def campaigns(db: Session = Depends(get_db)):
+    return CampaignIntelligence(db).campaigns()
+
+
+@router.post("/campaigns/{campaign_id}/package")
+def evidence_package(campaign_id: str, db: Session = Depends(get_db),
+                     user=Depends(get_current_user)):
+    package = CampaignIntelligence(db).evidence_package(
+        campaign_id, generated_by=user.get("sub", "unknown"))
+    if package is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return package
 
 
 @router.post("/sync-neo4j")

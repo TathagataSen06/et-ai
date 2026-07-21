@@ -12,7 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models.orm import BankAccount, Dealer, Distributor, Seizure
+from app.models.orm import (
+    BankAccount,
+    Dealer,
+    DeviceFingerprint,
+    Distributor,
+    ScamSession,
+    Seizure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +89,51 @@ class NetworkIntelligence:
             if a.dealer_id:
                 edges.append({"source": a.dealer_id, "target": a.id, "type": "OWNS"})
 
+        # Scam infrastructure layer: caller numbers + devices operating them,
+        # plus number -> mule-account funnels observed in flagged sessions.
+        sessions = self.db.scalars(select(ScamSession)).all()
+        devices = self.db.scalars(select(DeviceFingerprint)).all()
+        account_ids = {a.id for a in accounts}
+        phone_sessions: dict[str, list[ScamSession]] = defaultdict(list)
+        for s in sessions:
+            if s.caller_number:
+                phone_sessions[s.caller_number].append(s)
+
+        funnel_edges = set()
+        for number, sess in phone_sessions.items():
+            max_score = max(s.risk_score for s in sess)
+            nodes.append({
+                "id": f"phone:{number}",
+                "type": "phone",
+                "label": number,
+                "sessions": len(sess),
+                "max_risk_score": round(max_score, 3),
+                "suspicious": max_score >= 0.7,
+            })
+            for s in sess:
+                if s.mule_account_id in account_ids:
+                    funnel_edges.add((f"phone:{number}", s.mule_account_id))
+        edges.extend(
+            {"source": src, "target": dst, "type": "FUNNELS_TO"} for src, dst in sorted(funnel_edges)
+        )
+
+        seen_devices = set()
+        for d in devices:
+            node_id = f"device:{d.device_hash}"
+            if node_id not in seen_devices:
+                seen_devices.add(node_id)
+                nodes.append({
+                    "id": node_id,
+                    "type": "device",
+                    "label": f"device …{d.device_hash[-6:]}",
+                })
+            if d.caller_number in phone_sessions:
+                edges.append({
+                    "source": node_id,
+                    "target": f"phone:{d.caller_number}",
+                    "type": "OPERATES",
+                })
+
         return {
             "nodes": nodes,
             "edges": edges,
@@ -89,6 +141,8 @@ class NetworkIntelligence:
                 "distributors": len(distributors),
                 "dealers": len(dealers),
                 "accounts": len(accounts),
+                "phones": len(phone_sessions),
+                "devices": len(seen_devices),
                 "linked_seizures": sum(seizure_counts.values()),
                 "suspicious_accounts": sum(1 for a in accounts if self._is_suspicious(a)),
             },

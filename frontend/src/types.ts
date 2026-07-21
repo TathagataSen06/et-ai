@@ -110,7 +110,7 @@ export interface Toast {
 
 export interface NetworkNode {
   id: string
-  type: 'distributor' | 'dealer' | 'account'
+  type: 'distributor' | 'dealer' | 'account' | 'phone' | 'device'
   label: string
   city?: string
   scale?: string
@@ -123,12 +123,14 @@ export interface NetworkNode {
   velocity_per_day?: number
   is_verified?: boolean
   suspicious?: boolean
+  sessions?: number
+  max_risk_score?: number
 }
 
 export interface NetworkEdge {
   source: string
   target: string
-  type: 'DISTRIBUTES_TO' | 'OWNS' | 'LINKED_TO'
+  type: 'DISTRIBUTES_TO' | 'OWNS' | 'LINKED_TO' | 'FUNNELS_TO' | 'OPERATES'
 }
 
 export interface NetworkGraph {
@@ -138,6 +140,8 @@ export interface NetworkGraph {
     distributors: number
     dealers: number
     accounts: number
+    phones: number
+    devices: number
     linked_seizures: number
     suspicious_accounts: number
   }
@@ -152,4 +156,86 @@ export interface SuspiciousAccount {
   is_verified: boolean
   dealer: { id: string; name: string; city: string } | null
   reasons: string[]
+}
+
+export interface ScamStage {
+  stage: string
+  matched: boolean
+  evidence: string[]
+}
+
+export interface MhaAlert {
+  alert_type: string
+  reference: string
+  generated_at: string
+  claimed_agency: string | null
+  recommended_dissemination: string[]
+  citizen_guidance: string
+}
+
+export interface ScamAnalysis {
+  session_id: string
+  risk_score: number
+  verdict: 'ACTIVE_SCAM_LIKELY' | 'SUSPICIOUS' | 'LOW_RISK'
+  severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  stages: ScamStage[]
+  indicators: string[]
+  spoof_flags: string[]
+  claimed_agency: string | null
+  script_family: string | null
+  recommended_action: string
+  mha_alert: MhaAlert | null
+}
+
+export interface ScamSessionSummary {
+  id: string
+  caller_number: string | null
+  channel: string
+  claimed_agency: string | null
+  script_family: string | null
+  risk_score: number
+  verdict: string
+  spoof_flags: string[]
+  alerted: boolean
+  created_at: string
+}
+
+export interface ShieldResult {
+  verdict: 'HIGH_RISK' | 'SUSPICIOUS' | 'LIKELY_SAFE'
+  risk_score: number
+  fraud_type: string | null
+  indicators: string[]
+  lang: string
+  advisory: string
+  actions: string
+  ivr_text: string
+  helpline: string
+  report_url: string
+}
+
+export interface Campaign {
+  campaign_id: string
+  label: string
+  script_family: string | null
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH'
+  max_risk_score: number
+  session_count: number
+  caller_numbers: string[]
+  device_hashes: string[]
+  linked_report_count: number
+  mule_account_ids: string[]
+  first_activity: string | null
+  last_activity: string | null
+}
+
+export interface EvidencePackage {
+  package_type: string
+  reference: string
+  campaign: Omit<Campaign, 'session_ids'>
+  call_timeline: unknown[]
+  sessions: unknown[]
+  victim_reports: unknown[]
+  mule_accounts: unknown[]
+  integrity_sha256: string
+  provenance: { generated_by: string; methodology: string }
 }

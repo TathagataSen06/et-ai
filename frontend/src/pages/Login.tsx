@@ -29,7 +29,7 @@ export function Login() {
           <span className="brand-mark">◆</span>
           <span className="login-title">Project Netra</span>
         </div>
-        <div className="login-sub">Counterfeit Currency Intelligence · Restricted Access</div>
+        <div className="login-sub">Digital Public Safety Intelligence · Restricted Access</div>
 
         <label htmlFor="login-user">Username</label>
         <input

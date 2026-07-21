@@ -11,7 +11,18 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.middleware import AuditMiddleware, MetricsMiddleware, RateLimitMiddleware
-from app.routes import alerts, auth, citizen, clusters, network, patrols, reports, scanner
+from app.routes import (
+    alerts,
+    auth,
+    citizen,
+    clusters,
+    network,
+    patrols,
+    reports,
+    scam,
+    scanner,
+    shield,
+)
 from app.services.geospatial_service import GeospatialIntelligence
 
 logging.basicConfig(
@@ -75,6 +86,8 @@ app.include_router(alerts.router)
 app.include_router(network.router)
 app.include_router(reports.router)
 app.include_router(citizen.router)
+app.include_router(scam.router)
+app.include_router(shield.router)
 
 # Prometheus scrape endpoint. Served as a direct route (not a Mount) so
 # GET /metrics answers 200 immediately instead of 307-redirecting to /metrics/,

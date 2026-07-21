@@ -18,11 +18,17 @@ from app.models.orm import AnomalyEvent, CitizenReport
 from app.services.alert_service import manager
 from app.services.auth_service import get_current_user
 from app.services.cv_service import ImageDecodeError
+from app.services.fraud_shield_service import HELPLINE, FraudShield
 from app.services.media_service import MediaForensics
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/citizen", tags=["citizen"])
 forensics = MediaForensics()
+shield = FraudShield()
+
+# "CHECK <suspicious message>" (any case) routes to Fraud Shield triage
+# instead of report intake, so one WhatsApp number serves both channels.
+_CHECK_RE = re.compile(r"^\s*check\s*[:\-]?\s*(.+)$", re.IGNORECASE | re.DOTALL)
 
 # "19.0760,72.8777 suspicious notes at the market" -> coords + text
 _COORDS_RE = re.compile(r"^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*(.*)$", re.DOTALL)
@@ -105,9 +111,26 @@ async def whatsapp_webhook(
     Body: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
-    """Twilio-compatible WhatsApp webhook. Message format: '<lat>,<lon> <text>' or free text."""
+    """Twilio-compatible WhatsApp webhook.
+
+    'CHECK <text>' -> Fraud Shield triage reply (no report stored).
+    '<lat>,<lon> <text>' or free text -> citizen report intake.
+    """
     if not Body.strip():
         return {"status": "ignored", "detail": "empty message"}
+
+    check = _CHECK_RE.match(Body)
+    if check and len(check.group(1).strip()) >= 5:
+        a = shield.assess(check.group(1).strip(), channel="WHATSAPP")
+        return {
+            "status": "assessed",
+            "verdict": a.verdict,
+            "risk_score": a.risk_score,
+            "fraud_type": a.fraud_type,
+            "lang": a.lang,
+            "reply": f"{a.advisory}\n{a.actions}",
+            "helpline": HELPLINE,
+        }
 
     lat = lon = None
     description = Body.strip()

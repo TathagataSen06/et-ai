@@ -130,6 +130,117 @@ class CounterfeitNetworkGenerator:
             },
         }
 
+    # ------------------------------------------------------------------
+    # Digital-arrest scam campaigns: numbers rotated across a shared device
+    # pool (the linking signal), scripted sessions, and victim reports that
+    # mention the numbers so campaign clustering has real cross-references.
+    # ------------------------------------------------------------------
+
+    _SCAM_SCRIPTS: dict[str, list[str]] = {
+        "DIGITAL_ARREST_CBI": [
+            "Hello, I am calling from CBI headquarters Delhi, officer badge number {badge}.",
+            "A case has been registered against your Aadhaar for money laundering of 2 crore rupees.",
+            "An arrest warrant is issued. This is a digital arrest — stay on the video call and keep your camera on.",
+            "Do not tell your family or your bank, this is strictly confidential under the Official Secrets Act.",
+            "You are transferred to my senior officer for the Skype video statement.",
+            "To verify your funds you must transfer your savings by RTGS to the safe custody account. It is a refundable security deposit.",
+        ],
+        "PARCEL_CUSTOMS_NCB": [
+            "This is Mumbai customs office regarding a parcel booked on your name to Taiwan.",
+            "The courier was seized — drugs found inside, 400 grams MDMA, along with five passports.",
+            "A case is filed with NCB narcotics division. Your Aadhaar was used in the booking.",
+            "Do not disclose this call to anyone, you are under surveillance until the verification completes.",
+            "We are connecting you to the NCB officer for your video statement, keep the call connected.",
+            "Pay the legalization fee now by NEFT or the arrest warrant will be executed today.",
+        ],
+        "TRAI_SIM_DEACTIVATION": [
+            "This is an urgent call from the telecom department, TRAI regulatory wing.",
+            "Your SIM will be deactivated within 2 hours because your number is linked to illegal activity.",
+            "A complaint is registered against your number in Mumbai cyber cell.",
+            "Press 9 to speak to the police officer handling your case.",
+            "Stay on the line, do not disconnect, your statement is being recorded.",
+        ],
+        "BANK_KYC_ED": [
+            "I am calling from your bank head office, your KYC is expired and the account will be frozen today.",
+            "The Enforcement Directorate has flagged suspicious transactions found in your account.",
+            "To keep the account active, share the OTP you just received for re-verification.",
+            "Do not inform the branch, the verification must be completed on this call only.",
+            "Transfer the balance to the temporary government verification account until the audit completes.",
+        ],
+    }
+
+    def generate_scam_campaigns(self, accounts: list[dict], num_campaigns: int = 3) -> dict:
+        families = list(self._SCAM_SCRIPTS)
+        mule_pool = sorted(
+            accounts, key=lambda a: (a["is_verified"], -a["velocity_per_day"])
+        )[: max(num_campaigns * 2, 4)]
+        foreign_prefixes = ["+92 3", "+855 9", "+84 9"]
+        now = datetime.now(timezone.utc)
+
+        campaigns, sessions, victim_reports = [], [], []
+        for c in range(num_campaigns):
+            family = families[c % len(families)]
+            numbers = []
+            for _ in range(self.rng.randint(2, 3)):
+                if self.rng.random() < 0.6:
+                    prefix = self.rng.choice(foreign_prefixes)
+                    numbers.append(f"{prefix}{self.rng.randint(10_000_000, 99_999_999)}")
+                else:
+                    numbers.append(f"+91 {self.rng.randint(6, 9)}{self.rng.randint(100_000_000, 999_999_999)}")
+            devices = [f"{self.rng.getrandbits(128):032x}" for _ in range(2)]
+            mules = [m["account_id"] for m in self.rng.sample(mule_pool, k=min(2, len(mule_pool)))]
+
+            campaign_sessions = []
+            for i in range(self.rng.randint(4, 6)):
+                lines = self._SCAM_SCRIPTS[family]
+                # Most sessions run the full script; a couple stall early
+                # (victim hung up) so risk scores vary realistically.
+                cut = len(lines) if self.rng.random() < 0.7 else self.rng.randint(2, 3)
+                transcript = " ".join(lines[:cut]).format(badge=self.rng.randint(1000, 9999))
+                session = {
+                    "caller_number": self.rng.choice(numbers),
+                    "victim_contact": f"+91 {self.rng.randint(6, 9)}{self.rng.randint(100_000_000, 999_999_999)}",
+                    "channel": self.rng.choice(["VOICE", "VIDEO", "WHATSAPP"]),
+                    "duration_minutes": round(self.rng.uniform(18, 190), 1),
+                    "device_hash": self.rng.choice(devices),
+                    "mule_account_id": self.rng.choice(mules) if cut == len(lines) else None,
+                    "transcript": transcript,
+                    "created_at": (now - timedelta(days=self.rng.uniform(0.2, 21),
+                                                   hours=self.rng.uniform(0, 12))).isoformat(),
+                }
+                sessions.append(session)
+                campaign_sessions.append(session)
+
+            campaigns.append({
+                "script_family": family,
+                "caller_numbers": numbers,
+                "device_hashes": devices,
+                "mule_account_ids": mules,
+                "session_count": len(campaign_sessions),
+            })
+
+            for _ in range(self.rng.randint(2, 3)):
+                city = self.rng.choice(list(CITIES))
+                lat, lon = self._nearby(CITIES[city], radius_km=12)
+                number = self.rng.choice(numbers)
+                victim_reports.append({
+                    "report_id": str(uuid.UUID(int=self.rng.getrandbits(128), version=4)),
+                    "channel": self.rng.choice(["WEB", "WHATSAPP"]),
+                    "lat": lat,
+                    "lon": lon,
+                    "description": self.rng.choice([
+                        f"Got a call from {number} claiming to be {family.split('_')[-1]} officers, "
+                        "they said I am under digital arrest and demanded money transfer.",
+                        f"Number {number} kept me on video call for hours saying a parcel with drugs "
+                        "was booked in my name. They asked for a security deposit.",
+                        f"Received threatening call from {number}, caller knew my Aadhaar details "
+                        "and demanded RTGS transfer to avoid arrest.",
+                    ]),
+                    "created_at": (now - timedelta(days=self.rng.uniform(0.1, 18))).isoformat(),
+                })
+
+        return {"campaigns": campaigns, "sessions": sessions, "victim_reports": victim_reports}
+
     def generate_scan_records(self, num_scans: int = 300) -> list[dict]:
         base_date = datetime.now(timezone.utc) - timedelta(days=30)
         scans = []
@@ -168,13 +279,15 @@ def main() -> None:
     generator = CounterfeitNetworkGenerator(seed=args.seed)
 
     network = generator.generate_network(num_seizures=args.seizures)
+    network["scam"] = generator.generate_scam_campaigns(network["accounts"])
     (args.out_dir / "synthetic_network.json").write_text(json.dumps(network, indent=2))
 
     scans = generator.generate_scan_records(num_scans=args.scans)
     (args.out_dir / "synthetic_scans.json").write_text(json.dumps(scans, indent=2))
 
     print(f"Generated {len(network['dealers'])} dealers, {len(network['seizures'])} seizures, "
-          f"{len(scans)} scans -> {args.out_dir}")
+          f"{len(scans)} scans, {len(network['scam']['sessions'])} scam sessions "
+          f"in {len(network['scam']['campaigns'])} campaigns -> {args.out_dir}")
 
 
 if __name__ == "__main__":

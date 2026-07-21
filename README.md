@@ -1,9 +1,11 @@
-# Project Netra — Counterfeit Currency Intelligence
+# Project Netra — Digital Public Safety Intelligence
 
-Production-grade prototype of a dual-platform system for detecting counterfeit Indian
-currency notes and mapping fraud hotspots in real time. Rule-based OpenCV detection +
-DBSCAN geospatial clustering + statsmodels forecasting + fraud network graph, running
-entirely on synthetic data.
+Production-grade prototype of a digital public safety platform for law enforcement,
+financial institutions, and citizens: counterfeit-currency detection, digital-arrest
+scam-session screening, fraud-campaign graph intelligence, geospatial hotspot mapping,
+and a multilingual citizen Fraud Shield. Rule-based OpenCV detection + DBSCAN
+clustering + statsmodels forecasting + deterministic scam classification + campaign
+graph analysis, running entirely on synthetic data.
 
 | Component | Stack |
 |---|---|
@@ -11,7 +13,10 @@ entirely on synthetic data.
 | Computer vision | OpenCV — six security-feature detectors + ELA/noise media forensics |
 | Geospatial | scikit-learn DBSCAN (haversine), risk scoring, patrol priorities |
 | Forecasting | statsmodels seasonal decomposition + IsolationForest spike detection |
-| Fraud network | SQL graph (distributors → dealers → accounts) + optional Neo4j sync |
+| Fraud network | SQL graph (distributors → dealers → accounts → scam numbers → devices) + optional Neo4j sync |
+| Scam detection | Rule-based digital-arrest classifier (script stages, spoofing signatures, MHA-format alerts) |
+| Citizen Fraud Shield | Instant fraud triage in English + 12 regional languages (web, WhatsApp `CHECK`, IVR-length output) |
+| Campaign intelligence | Union-find clustering over shared numbers/devices → SHA-256-hashed evidence packages |
 | Reports | Claude API / Ollama / template fallback intelligence reports |
 | Dashboard | React 19 + TypeScript + Vite, Leaflet, Recharts, zustand, d3-force |
 | Mobile | React Native Expo scanner (camera + GPS) in `mobile/` |
@@ -78,6 +83,28 @@ markdown reports via Claude API (`NETRA_ANTHROPIC_API_KEY`), Groq/Llama
 evidence-photo tamper screening (ELA + noise inconsistency) at
 `POST /api/v1/citizen/media/verify`.
 
+**Digital-arrest scam detection** — `POST /api/v1/scam/analyze-session`: deterministic
+classifier over the documented digital-arrest anatomy — six-stage script progression
+(contact → authority claim → accusation → isolation → escalation → payment demand),
+caller-ID spoofing signatures (foreign prefixes, agency-over-WhatsApp/video, mobile
+CLI as government line), and hostage-call metadata. HIGH sessions raise a WebSocket
+alert and an MHA/I4C-format dissemination package (telecom flag, bank hold, I4C
+correlation). Script-family attribution: CBI digital arrest, parcel/NCB, TRAI SIM,
+bank-KYC/ED.
+
+**Citizen Fraud Shield** — `POST /api/v1/shield/assess`: instant triage of suspicious
+calls/messages across ten fraud families (digital arrest, UPI collect, OTP theft,
+phishing, KYC expiry, utility disconnect, lottery, parcel, job, investment, army-OLX)
+with advisories in English + 12 regional languages (script auto-detected), helpline
+1930 + cybercrime.gov.in guidance, and IVR-length output. On WhatsApp, prefix a
+message with `CHECK:` for a triage reply instead of report intake.
+
+**Campaign intelligence** — `GET /api/v1/network/campaigns`: scam sessions clustered
+into operations via union-find over shared caller numbers and device fingerprints
+(SIM-rotation signature); campaigns link victim reports and mule accounts.
+`POST /api/v1/network/campaigns/{id}/package` emits a canonical-JSON evidence package
+with SHA-256 integrity hash and provenance for court-grade verifiability.
+
 **Security & ops** — OAuth2 password flow → JWT (roles COMMAND/OFFICER), protected
 law-enforcement endpoints, sliding-window rate limiting, audit-log table for all
 mutations, Prometheus request metrics at `/metrics`.
@@ -119,18 +146,24 @@ GET  /api/v1/network/suspicious-accounts 🔒                      POST /api/v1/
 POST /api/v1/reports/generate/{id}    🔒
 POST /api/v1/citizen/report           public                     GET  /api/v1/citizen/reports     🔒
 POST /api/v1/citizen/media/verify     public                     POST /api/v1/citizen/webhooks/whatsapp
+POST /api/v1/scam/analyze-session     public                     GET  /api/v1/scam/sessions       🔒
+GET  /api/v1/scam/sessions/{id}/alert 🔒
+POST /api/v1/shield/assess            public                     GET  /api/v1/shield/languages    public
+GET  /api/v1/network/campaigns        🔒                         POST /api/v1/network/campaigns/{id}/package 🔒
 GET  /health · GET /metrics
 ```
 
 ## Tests
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest tests/ -q   # 52 tests
+cd backend && .venv/Scripts/python -m pytest tests/ -q   # 97 tests
 ```
 
 Covers CV detectors, clustering/risk scoring, forecasting, auth/rate-limit/audit,
 network graph, batch + EXIF + GeoJSON + search endpoints, citizen channels, media
-forensics, report generation, and the WebSocket alert push.
+forensics, report generation, the WebSocket alert push, the digital-arrest
+classifier (stages, spoofing, script families), Fraud Shield triage + languages,
+campaign clustering, and evidence-package integrity hashing.
 
 ## Design decisions
 

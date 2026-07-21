@@ -34,6 +34,7 @@ def test_graph_structure(client, db, auth_headers):
     assert types == {"distributor", "dealer", "account"}
     assert graph["stats"] == {
         "distributors": 1, "dealers": 2, "accounts": 2,
+        "phones": 0, "devices": 0,
         "linked_seizures": 1, "suspicious_accounts": 1,
     }
     edge_types = {e["type"] for e in graph["edges"]}

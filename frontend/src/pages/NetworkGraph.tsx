@@ -8,8 +8,14 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from 'd3-force'
-import { fetchNetworkGraph, fetchSuspiciousAccounts } from '../api'
-import type { NetworkGraph as GraphData, NetworkNode, SuspiciousAccount } from '../types'
+import { fetchCampaigns, fetchNetworkGraph, fetchSuspiciousAccounts, generateEvidencePackage } from '../api'
+import type {
+  Campaign,
+  EvidencePackage,
+  NetworkGraph as GraphData,
+  NetworkNode,
+  SuspiciousAccount,
+} from '../types'
 
 interface LayoutNode extends SimulationNodeDatum, NetworkNode {}
 type LayoutLink = SimulationLinkDatum<LayoutNode> & { type: string }
@@ -25,11 +31,15 @@ const NODE_COLORS: Record<NetworkNode['type'], string> = {
   distributor: 'var(--accent-secondary)',
   dealer: 'var(--accent-info)',
   account: 'var(--accent-caution)',
+  phone: 'var(--accent-danger)',
+  device: 'var(--text-tertiary)',
 }
 
 function nodeRadius(node: NetworkNode): number {
   if (node.type === 'distributor') return 14
   if (node.type === 'dealer') return 8 + Math.min(6, (node.seizure_count ?? 0) * 1.5)
+  if (node.type === 'phone') return 7 + Math.min(4, (node.sessions ?? 0))
+  if (node.type === 'device') return 5
   return 6
 }
 
@@ -86,6 +96,9 @@ function computeLayout(graph: GraphData): GraphLayout {
 export function NetworkGraphPage() {
   const [graph, setGraph] = useState<GraphData | null>(null)
   const [accounts, setAccounts] = useState<SuspiciousAccount[]>([])
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [evidence, setEvidence] = useState<EvidencePackage | null>(null)
+  const [packaging, setPackaging] = useState<string | null>(null)
   const [selected, setSelected] = useState<NetworkNode | null>(null)
   const [error, setError] = useState<string | null>(null)
   const graphViewportRef = useRef<HTMLDivElement>(null)
@@ -93,7 +106,19 @@ export function NetworkGraphPage() {
   useEffect(() => {
     fetchNetworkGraph().then(setGraph).catch((e) => setError((e as Error).message))
     fetchSuspiciousAccounts().then(setAccounts).catch(console.error)
+    fetchCampaigns().then(setCampaigns).catch(console.error)
   }, [])
+
+  const buildPackage = async (campaignId: string) => {
+    setPackaging(campaignId)
+    try {
+      setEvidence(await generateEvidencePackage(campaignId))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setPackaging(null)
+    }
+  }
 
   const layout = useMemo(() => (graph ? computeLayout(graph) : null), [graph])
 
@@ -123,6 +148,7 @@ export function NetworkGraphPage() {
               <span><em>{graph.stats.distributors}</em> distributors</span>
               <span><em>{graph.stats.dealers}</em> dealers</span>
               <span><em>{graph.stats.accounts}</em> accounts</span>
+              <span><em>{graph.stats.phones}</em> scam numbers</span>
               <span className="stat-danger">
                 <em>{graph.stats.suspicious_accounts}</em> suspicious
               </span>
@@ -183,10 +209,75 @@ export function NetworkGraphPage() {
               <span><i style={{ background: 'var(--accent-secondary)' }} /> Distributor</span>
               <span><i style={{ background: 'var(--accent-info)' }} /> Dealer</span>
               <span><i style={{ background: 'var(--accent-caution)' }} /> Bank account</span>
+              <span><i style={{ background: 'var(--accent-danger)' }} /> Scam number</span>
+              <span><i style={{ background: 'var(--text-tertiary)' }} /> Device</span>
               <span><i className="legend-ring" /> Linked seizures</span>
             </div>
           </div>
         )}
+
+        <section className="suspicious-section">
+          <h2>Fraud Campaigns</h2>
+          {campaigns.length === 0 ? (
+            <div className="empty">No campaigns detected</div>
+          ) : (
+            <table className="intel-table">
+              <thead>
+                <tr>
+                  <th>Campaign</th><th>Risk</th><th>Sessions</th><th>Numbers</th>
+                  <th>Devices</th><th>Victim reports</th><th>Mule accts</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {campaigns.map((c) => (
+                  <tr key={c.campaign_id}>
+                    <td>{c.label}</td>
+                    <td className={c.risk_level === 'HIGH' ? 'mono danger' : 'mono'}>
+                      {c.risk_level} {(c.max_risk_score * 100).toFixed(0)}%
+                    </td>
+                    <td className="mono">{c.session_count}</td>
+                    <td className="mono">{c.caller_numbers.length}</td>
+                    <td className="mono">{c.device_hashes.length}</td>
+                    <td className="mono">{c.linked_report_count}</td>
+                    <td className="mono">{c.mule_account_ids.length}</td>
+                    <td>
+                      <button
+                        className="btn btn-secondary btn-compact"
+                        onClick={() => buildPackage(c.campaign_id)}
+                        disabled={packaging === c.campaign_id}
+                      >
+                        {packaging === c.campaign_id ? 'Building…' : 'Evidence Package'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {evidence && (
+            <div className="evidence-panel">
+              <div className="mha-head">
+                <span className="mha-badge">EVIDENCE PACKAGE</span>
+                <span className="mono">{evidence.reference}</span>
+              </div>
+              <div className="evidence-grid">
+                <span>Sessions <em className="mono">{evidence.sessions.length}</em></span>
+                <span>Call records <em className="mono">{evidence.call_timeline.length}</em></span>
+                <span>Victim reports <em className="mono">{evidence.victim_reports.length}</em></span>
+                <span>Mule accounts <em className="mono">{evidence.mule_accounts.length}</em></span>
+              </div>
+              <div className="evidence-hash">
+                <span>SHA-256 integrity</span>
+                <code className="mono">{evidence.integrity_sha256}</code>
+              </div>
+              <p className="muted">
+                Canonical-JSON snapshot with provenance ({evidence.provenance.generated_by}) —
+                verifiable byte-for-byte for court submission.{' '}
+                {evidence.provenance.methodology}
+              </p>
+            </div>
+          )}
+        </section>
 
         <section className="suspicious-section">
           <h2>Suspicious Accounts</h2>
@@ -257,6 +348,14 @@ export function NetworkGraphPage() {
                 )}
                 {selected.is_verified != null && (
                   <tr><td>KYC verified</td><td>{selected.is_verified ? 'Yes' : 'No'}</td></tr>
+                )}
+                {selected.sessions != null && (
+                  <tr><td>Scam sessions</td>
+                    <td className="mono danger">{selected.sessions}</td></tr>
+                )}
+                {selected.max_risk_score != null && (
+                  <tr><td>Max risk</td>
+                    <td className="mono danger">{(selected.max_risk_score * 100).toFixed(0)}%</td></tr>
                 )}
               </tbody>
             </table>

@@ -1,6 +1,93 @@
-import { useRef, useState } from 'react'
-import { submitCitizenReport, verifyMedia } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import { assessMessage, fetchShieldLanguages, submitCitizenReport, verifyMedia } from '../api'
 import { useToastStore } from '../stores/toasts'
+import type { ShieldResult } from '../types'
+
+const SHIELD_COLORS: Record<ShieldResult['verdict'], string> = {
+  HIGH_RISK: '#dc2626',
+  SUSPICIOUS: '#d97706',
+  LIKELY_SAFE: '#059669',
+}
+
+function FraudShieldCard() {
+  const [message, setMessage] = useState('')
+  const [lang, setLang] = useState('')
+  const [languages, setLanguages] = useState<{ code: string; name: string }[]>([])
+  const [result, setResult] = useState<ShieldResult | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchShieldLanguages().then(setLanguages).catch(console.error)
+  }, [])
+
+  const check = async () => {
+    if (message.trim().length < 5) return
+    setBusy(true)
+    setError(null)
+    setResult(null)
+    try {
+      setResult(await assessMessage({ message: message.trim(), lang: lang || null }))
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="scanner-card shield-card">
+      <h1>Fraud Shield — Instant Check</h1>
+      <p className="muted">
+        Unsure about a call, message, or payment request? Paste it below for an instant risk
+        verdict with guidance in 13 languages. Also available on WhatsApp — send
+        “CHECK: &lt;message&gt;” to the task-force number.
+      </p>
+      <textarea
+        className="scam-transcript"
+        rows={3}
+        placeholder="e.g. “Your parcel is on hold, share the OTP to release it…”"
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+      />
+      <div className="scam-meta-row">
+        <select value={lang} onChange={(e) => setLang(e.target.value)}>
+          <option value="">Auto-detect language</option>
+          {languages.map((l) => (
+            <option key={l.code} value={l.code}>{l.name}</option>
+          ))}
+        </select>
+        <button className="btn btn-primary" onClick={check} disabled={busy}>
+          {busy ? 'Checking…' : 'Check Message'}
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+      {result && (
+        <div className="result">
+          <div
+            className="verdict"
+            style={{
+              borderColor: `color-mix(in srgb, ${SHIELD_COLORS[result.verdict]} 45%, transparent)`,
+              borderLeftColor: SHIELD_COLORS[result.verdict],
+            }}
+          >
+            <span className="verdict-label" style={{ color: SHIELD_COLORS[result.verdict] }}>
+              {result.verdict.replaceAll('_', ' ')}
+            </span>
+            <span className="score">
+              risk {(result.risk_score * 100).toFixed(0)}%
+              {result.fraud_type && (
+                <span className="mode-tag">{result.fraud_type.replaceAll('_', ' ')}</span>
+              )}
+            </span>
+          </div>
+          <div className="shield-advisory">{result.advisory}</div>
+          <div className="shield-actions">{result.actions}</div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface MediaCheck {
   tamper_score: number
@@ -140,6 +227,7 @@ export function CitizenReportPage() {
 
   return (
     <div className="scanner-page">
+      <FraudShieldCard />
       <div className="scanner-card">
         <h1>Report Counterfeit Activity</h1>
         <p className="muted">

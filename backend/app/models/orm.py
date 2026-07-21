@@ -145,6 +145,58 @@ class CitizenReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class ScamSession(Base):
+    """An analyzed call/message session screened for digital-arrest patterns."""
+
+    __tablename__ = "scam_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    caller_number: Mapped[str | None] = mapped_column(String(30), index=True)
+    victim_contact: Mapped[str | None] = mapped_column(String(100))
+    channel: Mapped[str] = mapped_column(String(20), default="VOICE")  # VOICE/VIDEO/WHATSAPP/SMS
+    claimed_agency: Mapped[str | None] = mapped_column(String(50))
+    transcript: Mapped[str] = mapped_column(Text, default="")
+    duration_minutes: Mapped[float | None] = mapped_column(Float)
+    device_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    mule_account_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    risk_score: Mapped[float] = mapped_column(Float, default=0.0)
+    verdict: Mapped[str] = mapped_column(String(30), default="LOW_RISK")
+    script_family: Mapped[str | None] = mapped_column(String(50))
+    stages: Mapped[list] = mapped_column(JSON, default=list)
+    indicators: Mapped[list] = mapped_column(JSON, default=list)
+    spoof_flags: Mapped[list] = mapped_column(JSON, default=list)
+    alerted: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class CallRecord(Base):
+    """Call/session metadata used for cross-linking numbers into campaigns."""
+
+    __tablename__ = "call_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("scam_sessions.id"), index=True)
+    caller_number: Mapped[str | None] = mapped_column(String(30), index=True)
+    victim_contact: Mapped[str | None] = mapped_column(String(100))
+    channel: Mapped[str] = mapped_column(String(20), default="VOICE")
+    duration_minutes: Mapped[float | None] = mapped_column(Float)
+    spoofed: Mapped[bool] = mapped_column(default=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class DeviceFingerprint(Base):
+    """A device observed operating one or more caller numbers (mule-ring signal)."""
+
+    __tablename__ = "device_fingerprints"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    device_hash: Mapped[str] = mapped_column(String(64), index=True)
+    caller_number: Mapped[str | None] = mapped_column(String(30), index=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sessions_count: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 

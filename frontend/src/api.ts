@@ -1,13 +1,18 @@
 import { authHeaders, useAuthStore } from './stores/auth'
 import type {
   Alert,
+  Campaign,
   Cluster,
+  EvidencePackage,
   HeatmapPoint,
   NetworkGraph,
   Patrol,
   PatrolRecommendation,
+  ScamAnalysis,
+  ScamSessionSummary,
   ScanResult,
   ScanStatistics,
+  ShieldResult,
   SuspiciousAccount,
 } from './types'
 
@@ -65,6 +70,38 @@ export async function verifyMedia(file: File) {
     { method: 'POST', body: form },
   )
 }
+
+export const analyzeScamSession = (body: {
+  transcript: string
+  caller_number?: string | null
+  channel?: string
+  duration_minutes?: number | null
+}) =>
+  request<ScamAnalysis>('/api/v1/scam/analyze-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+export const fetchScamSessions = () =>
+  request<ScamSessionSummary[]>('/api/v1/scam/sessions')
+
+export const assessMessage = (body: { message: string; lang?: string | null }) =>
+  request<ShieldResult>('/api/v1/shield/assess', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+export const fetchShieldLanguages = () =>
+  request<{ code: string; name: string }[]>('/api/v1/shield/languages')
+
+export const fetchCampaigns = () => request<Campaign[]>('/api/v1/network/campaigns')
+
+export const generateEvidencePackage = (campaignId: string) =>
+  request<EvidencePackage>(`/api/v1/network/campaigns/${campaignId}/package`, {
+    method: 'POST',
+  })
 
 export const submitCitizenReport = (body: {
   description: string
