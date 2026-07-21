@@ -50,9 +50,7 @@ class Settings(BaseSettings):
     neo4j_user: str = "neo4j"
     neo4j_password: str = ""
 
-    # Intelligence report generation: Claude API > Groq > Ollama > template fallback
-    anthropic_api_key: str = ""
-    report_model: str = "claude-opus-4-8"
+    # Intelligence report generation: Groq > Ollama > template fallback
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
     ollama_url: str = ""

@@ -6,7 +6,6 @@ from pathlib import Path
 os.environ["NETRA_DATABASE_URL"] = "sqlite:///./test_netra.db"
 os.environ["NETRA_RATE_LIMIT_ENABLED"] = "false"  # re-enabled inside the rate-limit test
 # Keep tests offline/deterministic: env vars override any local .env LLM keys.
-os.environ["NETRA_ANTHROPIC_API_KEY"] = ""
 os.environ["NETRA_GROQ_API_KEY"] = ""
 os.environ["NETRA_OLLAMA_URL"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

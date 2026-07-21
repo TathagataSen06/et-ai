@@ -11,9 +11,7 @@ dist/
 # Generated data
 backend/scripts/data/
 
-# Env / IDE / local tooling
+# Env / IDE
 .env
 .vscode/
 .idea/
-.claude/
-.agents/

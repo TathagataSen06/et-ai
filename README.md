@@ -17,7 +17,7 @@ graph analysis, running entirely on synthetic data.
 | Scam detection | Rule-based digital-arrest classifier (script stages, spoofing signatures, MHA-format alerts) |
 | Citizen Fraud Shield | Instant fraud triage in English + 12 regional languages (web, WhatsApp `CHECK`, IVR-length output) |
 | Campaign intelligence | Union-find clustering over shared numbers/devices → SHA-256-hashed evidence packages |
-| Reports | Claude API / Ollama / template fallback intelligence reports |
+| Reports | Groq/Llama · Ollama · template fallback intelligence reports |
 | Dashboard | React 19 + TypeScript + Vite, Leaflet, Recharts, zustand, d3-force |
 | Mobile | React Native Expo scanner (camera + GPS) in `mobile/` |
 | Observability | Prometheus `/metrics`, Grafana provisioning, audit-log table |
@@ -74,9 +74,9 @@ suspicious-account flagging (velocity/inflow heuristics), d3-force dashboard
 visualization, optional Neo4j Community sync (`NETRA_NEO4J_URI`).
 
 **Intelligence reports** — `POST /api/v1/reports/generate/{cluster_id}`: grounded
-markdown reports via Claude API (`NETRA_ANTHROPIC_API_KEY`), Groq/Llama
-(`NETRA_GROQ_API_KEY`), Ollama (`NETRA_OLLAMA_URL`), or the built-in template
-(default, offline). Put keys in `backend/.env` (gitignored), never in source.
+markdown reports via Groq/Llama (`NETRA_GROQ_API_KEY`), Ollama
+(`NETRA_OLLAMA_URL`), or the built-in template (default, offline).
+Put keys in `backend/.env` (gitignored), never in source.
 
 **Citizen reporting** — web form, Twilio-compatible WhatsApp webhook
 (`POST /api/v1/citizen/webhooks/whatsapp`, body `"<lat>,<lon> <text>"`), and

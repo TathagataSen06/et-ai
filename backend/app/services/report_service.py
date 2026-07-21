@@ -1,10 +1,9 @@
 """Intelligence report generation (spec: LLM report service).
 
 Backend selection, in order:
-1. Claude API (official `anthropic` SDK) when NETRA_ANTHROPIC_API_KEY is set
-2. Groq (OpenAI-compatible endpoint, serves Llama) when NETRA_GROQ_API_KEY is set
-3. Ollama when NETRA_OLLAMA_URL is set
-4. Deterministic template — always available, zero cost, offline
+1. Groq (OpenAI-compatible endpoint, serves Llama) when NETRA_GROQ_API_KEY is set
+2. Ollama when NETRA_OLLAMA_URL is set
+3. Deterministic template — always available, zero cost, offline
 
 The LLM paths receive the same structured facts the template renders, so the
 report content is grounded either way.
@@ -36,11 +35,7 @@ class ReportService:
 
         generator = "TEMPLATE"
         markdown = self._template_report(facts)
-        if self.settings.anthropic_api_key:
-            llm_report = self._claude_report(facts)
-            if llm_report:
-                markdown, generator = llm_report, "CLAUDE"
-        elif self.settings.groq_api_key:
+        if self.settings.groq_api_key:
             llm_report = self._groq_report(facts)
             if llm_report:
                 markdown, generator = llm_report, "GROQ"
@@ -162,23 +157,6 @@ class ReportService:
             "not evidence.*",
         ]
         return "\n".join(lines)
-
-    def _claude_report(self, facts: dict) -> str | None:
-        try:
-            import anthropic
-
-            client = anthropic.Anthropic(api_key=self.settings.anthropic_api_key)
-            response = client.messages.create(
-                model=self.settings.report_model,
-                max_tokens=2000,
-                system=self._ANALYST_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": f"Cluster facts:\n{facts}"}],
-            )
-            text = next((b.text for b in response.content if b.type == "text"), None)
-            return text
-        except Exception:
-            logger.exception("Claude report generation failed; falling back to template")
-            return None
 
     _ANALYST_SYSTEM_PROMPT = (
         "You are an intelligence analyst for a counterfeit-currency task force. "
