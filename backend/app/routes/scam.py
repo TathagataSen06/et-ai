@@ -12,6 +12,7 @@ from app.database import get_db
 from app.models.orm import AnomalyEvent, CallRecord, DeviceFingerprint, ScamSession, utcnow
 from app.services.alert_service import manager
 from app.services.auth_service import get_current_user
+from app.services.live_call_service import tracker
 from app.services.scam_detection_service import ScamDetector
 
 router = APIRouter(prefix="/api/v1/scam", tags=["scam"])
@@ -120,6 +121,134 @@ async def analyze_session(body: SessionIn, db: Session = Depends(get_db)):
         })
 
     return {"session_id": session.id, **a, "mha_alert": mha_alert}
+
+
+class StreamChunkIn(BaseModel):
+    call_id: str = Field(min_length=4, max_length=64)
+    chunk: str = Field(default="", max_length=8000)
+    caller_number: str | None = Field(default=None, max_length=30)
+    victim_contact: str | None = Field(default=None, max_length=100)
+    channel: str = Field(default="VOICE", max_length=20)
+    device_hash: str | None = Field(default=None, max_length=64)
+    final: bool = False
+
+
+def _persist_live_call(db: Session, call, assessment, a: dict) -> ScamSession:
+    """Write (or update) the durable row for a live call."""
+    session = db.get(ScamSession, call.session_id) if call.session_id else None
+    if session is None:
+        session = ScamSession(
+            caller_number=call.caller_number,
+            victim_contact=call.victim_contact,
+            channel=call.channel,
+            device_hash=call.device_hash,
+        )
+        db.add(session)
+        db.flush()
+        call.session_id = session.id
+        db.add(CallRecord(
+            session_id=session.id,
+            caller_number=call.caller_number,
+            victim_contact=call.victim_contact,
+            channel=call.channel,
+            duration_minutes=round(call.duration_minutes, 1),
+            spoofed=bool(assessment.spoof_flags),
+        ))
+        _upsert_device(db, call.device_hash, call.caller_number)
+    session.claimed_agency = assessment.claimed_agency
+    session.transcript = call.transcript
+    session.duration_minutes = round(call.duration_minutes, 1)
+    session.risk_score = assessment.risk_score
+    session.verdict = assessment.verdict
+    session.script_family = assessment.script_family
+    session.stages = assessment.stages
+    session.indicators = assessment.indicators
+    session.spoof_flags = assessment.spoof_flags
+    session.alerted = call.alerted
+    return session
+
+
+@router.post("/stream")
+async def stream_chunk(body: StreamChunkIn, db: Session = Depends(get_db)):
+    """Ingest one transcript chunk of a call that is still in progress.
+
+    Telecom-provider shaped: post chunks as they are transcribed. The response
+    carries the running risk, and the first chunk that crosses HIGH raises the
+    alert immediately — before the victim is talked into transferring funds.
+    """
+    call, assessment = tracker.ingest(
+        body.call_id, body.chunk,
+        caller_number=body.caller_number,
+        victim_contact=body.victim_contact,
+        channel=body.channel,
+        device_hash=body.device_hash,
+    )
+    a = _assessment_dict(assessment)
+    newly_alerted = assessment.severity == "HIGH" and not call.alerted
+    if newly_alerted:
+        call.alerted = True
+        call.alerted_at_chunk = len(call.chunks)
+
+    mha_alert = None
+    if newly_alerted or body.final:
+        session = _persist_live_call(db, call, assessment, a)
+        if newly_alerted:
+            db.add(AnomalyEvent(
+                event_type="SCAM_SESSION_LIVE",
+                severity="HIGH",
+                description=(
+                    f"LIVE digital-arrest call flagged mid-session at chunk "
+                    f"{call.alerted_at_chunk} (score {assessment.risk_score:.2f}) "
+                    f"from {call.caller_number or 'withheld number'}"
+                ),
+            ))
+            mha_alert = ScamDetector.mha_alert_package(
+                session.id, a, caller_number=call.caller_number, channel=call.channel)
+        db.commit()
+
+    if newly_alerted:
+        await manager.broadcast({
+            "type": "ALERT",
+            "severity": "HIGH",
+            "message": (
+                f"LIVE CALL IN PROGRESS — digital-arrest script detected at chunk "
+                f"{call.alerted_at_chunk} from {call.caller_number or 'withheld number'} "
+                f"(score {assessment.risk_score:.2f}). Intervene before transfer."
+            ),
+        })
+
+    if body.final:
+        tracker.close(body.call_id)
+
+    return {
+        "call_id": call.call_id,
+        "chunks_received": len(call.chunks),
+        "alert_fired_now": newly_alerted,
+        "alerted": call.alerted,
+        "alerted_at_chunk": call.alerted_at_chunk,
+        "session_id": call.session_id,
+        "final": body.final,
+        **a,
+        "mha_alert": mha_alert,
+    }
+
+
+@router.get("/stream/active", dependencies=[Depends(get_current_user)])
+def active_calls():
+    """Calls currently in flight, most recently updated first."""
+    return [
+        {
+            "call_id": c.call_id,
+            "caller_number": c.caller_number,
+            "channel": c.channel,
+            "chunks": len(c.chunks),
+            "alerted": c.alerted,
+            "alerted_at_chunk": c.alerted_at_chunk,
+            "duration_minutes": round(c.duration_minutes, 1),
+            "started_at": c.started_at,
+        }
+        for c in tracker.active()
+    ]
 
 
 @router.get("/sessions", dependencies=[Depends(get_current_user)])

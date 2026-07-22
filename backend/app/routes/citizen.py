@@ -17,6 +17,7 @@ from app.database import get_db
 from app.models.orm import AnomalyEvent, CitizenReport
 from app.services.alert_service import manager
 from app.services.auth_service import get_current_user
+from app.services.conversation_service import engine as conversation
 from app.services.cv_service import ImageDecodeError
 from app.services.fraud_shield_service import HELPLINE, FraudShield
 from app.services.media_service import MediaForensics
@@ -29,6 +30,8 @@ shield = FraudShield()
 # "CHECK <suspicious message>" (any case) routes to Fraud Shield triage
 # instead of report intake, so one WhatsApp number serves both channels.
 _CHECK_RE = re.compile(r"^\s*check\s*[:\-]?\s*(.+)$", re.IGNORECASE | re.DOTALL)
+# "HELP" / "SHIELD" / "START" opens the guided multi-turn triage.
+_TRIAGE_START_RE = re.compile(r"^\s*(help|shield|start|madad)\s*$", re.IGNORECASE)
 
 # "19.0760,72.8777 suspicious notes at the market" -> coords + text
 _COORDS_RE = re.compile(r"^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*(.*)$", re.DOTALL)
@@ -118,6 +121,24 @@ async def whatsapp_webhook(
     """
     if not Body.strip():
         return {"status": "ignored", "detail": "empty message"}
+
+    # Multi-turn triage: "HELP"/"SHIELD" opens a guided conversation; while one
+    # is active every message advances it until a verdict is reached.
+    contact = From or "anonymous"
+    body_text = Body.strip()
+    if _TRIAGE_START_RE.match(body_text):
+        conversation.reset(contact)
+        result = conversation.handle(contact, "")
+        return {"status": "conversation", **result}
+    active = conversation.active(contact)
+    if active and not _CHECK_RE.match(body_text):
+        result = conversation.handle(contact, body_text)
+        if result["done"] and result.get("verdict") in ("HIGH_RISK", "SUSPICIOUS"):
+            await _store_report(
+                db, channel="WHATSAPP",
+                description=f"[triage {result['verdict']}] {body_text[:400]}",
+                lat=None, lon=None, contact=From or None)
+        return {"status": "conversation", **result}
 
     check = _CHECK_RE.match(Body)
     if check and len(check.group(1).strip()) >= 5:

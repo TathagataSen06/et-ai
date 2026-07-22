@@ -92,6 +92,13 @@ alert and an MHA/I4C-format dissemination package (telecom flag, bank hold, I4C
 correlation). Script-family attribution: CBI digital arrest, parcel/NCB, TRAI SIM,
 bank-KYC/ED.
 
+**Live call interception** — `POST /api/v1/scam/stream`: telecom-shaped ingestion of
+transcript chunks while a call is still in progress. Each chunk re-scores the
+accumulated transcript and the first one to cross HIGH raises the WebSocket +
+MHA alert immediately. On the reference digital-arrest script the alert fires at
+chunk 4 of 5 — one line *before* the transfer demand, which is the whole point:
+intervene before the money moves, not after the complaint.
+
 **Citizen Fraud Shield** — `POST /api/v1/shield/assess`: instant triage of suspicious
 calls/messages across ten fraud families (digital arrest, UPI collect, OTP theft,
 phishing, KYC expiry, utility disconnect, lottery, parcel, job, investment, army-OLX)
@@ -99,11 +106,21 @@ with advisories in English + 12 regional languages (script auto-detected), helpl
 1930 + cybercrime.gov.in guidance, and IVR-length output. On WhatsApp, prefix a
 message with `CHECK:` for a triage reply instead of report intake.
 
+**Conversational triage (WhatsApp + IVR)** — send `HELP` on WhatsApp, or call the
+`POST /api/v1/shield/ivr` DTMF menu, for a guided multi-turn assessment: the
+follow-up questions are chosen from the *signals* found in the description (not
+just the final label), so "he said he was from CBI" still pulls the
+digital-arrest questions. Each answer moves the risk score, and a `yes` to
+"already sent money" escalates straight to the freeze-the-account advice. The
+whole flow runs in the citizen's language, IVR prompts included.
+
 **Campaign intelligence** — `GET /api/v1/network/campaigns`: scam sessions clustered
 into operations via union-find over shared caller numbers and device fingerprints
 (SIM-rotation signature); campaigns link victim reports and mule accounts.
 `POST /api/v1/network/campaigns/{id}/package` emits a canonical-JSON evidence package
-with SHA-256 integrity hash and provenance for court-grade verifiability.
+with SHA-256 integrity hash and provenance for court-grade verifiability;
+`…/package.pdf` renders the same package as a court-ready PDF carrying that digest,
+so a recipient can re-hash the JSON and confirm the printed value matches.
 
 **Security & ops** — OAuth2 password flow → JWT (roles COMMAND/OFFICER), protected
 law-enforcement endpoints, sliding-window rate limiting, audit-log table for all
@@ -147,16 +164,19 @@ POST /api/v1/reports/generate/{id}    🔒
 POST /api/v1/citizen/report           public                     GET  /api/v1/citizen/reports     🔒
 POST /api/v1/citizen/media/verify     public                     POST /api/v1/citizen/webhooks/whatsapp
 POST /api/v1/scam/analyze-session     public                     GET  /api/v1/scam/sessions       🔒
+POST /api/v1/scam/stream              public (telecom)           GET  /api/v1/scam/stream/active  🔒
+POST /api/v1/shield/ivr               public (IVR/DTMF)
 GET  /api/v1/scam/sessions/{id}/alert 🔒
 POST /api/v1/shield/assess            public                     GET  /api/v1/shield/languages    public
 GET  /api/v1/network/campaigns        🔒                         POST /api/v1/network/campaigns/{id}/package 🔒
+POST /api/v1/network/campaigns/{id}/package.pdf 🔒
 GET  /health · GET /metrics
 ```
 
 ## Tests
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest tests/ -q   # 97 tests
+cd backend && .venv/Scripts/python -m pytest tests/ -q   # 114 tests
 ```
 
 Covers CV detectors, clustering/risk scoring, forecasting, auth/rate-limit/audit,
